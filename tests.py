@@ -1,8 +1,9 @@
 import unittest
 from merkle import MerkleLog
 from visualize import visualize_merkel, visualize_multiple
+import numpy as np
+import matplotlib.pyplot as plt
 
-    
 
 class MerkleLogTests(unittest.TestCase):
     def test_identical_startup(self):
@@ -277,7 +278,6 @@ class MerkleLogTests(unittest.TestCase):
         log1.swap_final(log2.my_uuid, nodes_to_send2, roots_to_send2)
         on_deliver()
 
-        
     
     def test_stability_three_simple(self):
         uuids = [1, 2, 3]
@@ -840,5 +840,98 @@ class MerkleLogTests(unittest.TestCase):
         self.swap(log2, log3)
         visualize_multiple(logs)
 
+
+
+
+    def swap_with_concurrent_ops(self, log1, log2):
+
+            nodes_to_send, roots_to_send = log1.prepare_swap(log2.my_uuid)
+            print("nodes_to_send", len(nodes_to_send))
+            nodes_to_send2, roots_to_send2, on_deliver = log2.respond_to_swap(log1.my_uuid, nodes_to_send, roots_to_send)
+            print("nodes_to_send2", len(nodes_to_send2))
+            log2.add_node(log2.my_uuid * 1000)
+            log1.swap_final(log2.my_uuid, nodes_to_send2, roots_to_send2)
+            on_deliver()
+            
+            
+
+
+
+    def test_benchmark(self):
+        
+            uuids = [1, 2, 3, 4]
+            id1, id2, id3, id4 = uuids  
+            
+            log1 = MerkleLog(id1, uuids, enable_compaction=True)
+            log2 = MerkleLog(id2, uuids, enable_compaction=True)
+            log3 = MerkleLog(id3, uuids, enable_compaction=True)
+            log4 = MerkleLog(id4, uuids, enable_compaction=True)
+
+            
+            wps = 2000
+            gossip_freq = 0.2
+            ops_to_gossip = 300
+            
+            logs = [log1, log2, log3, log4]
+            
+            timesteps = [60,120,180,240]
+            average_nodes_in_log = [[], [], [], []]
+            average_nodes_compacted = [[], [], [], []]
+            
+            
+            def next_step():
+                for i in range(4):
+                    timesteps[i] += 1
+                    average_nodes_in_log[i].append( len(logs[i].nodes.keys()) )
+                    average_nodes_compacted[i].append( len(logs[i].compacted) )
+            
+            swaps = 0
+            total_ops = 0
+            for _ in range(50000):
+         
+                
+                num = np.random.random_integers(0, 3)
+                total_ops += num
+                for _ in range(num):
+                    i = np.random.random_integers(0, 3) 
+                    logs[i].add_node(logs[i].my_uuid * 1000)
+                # visualize_multiple(logs)
+                
+                       
+                for i in range(4):
+
+                    if timesteps[i] % ops_to_gossip == 0:
+                        logs[i].add_node(logs[i].my_uuid * 1000)
+
+                        for j in list(filter(lambda x : x != i,[0,1,2,3])):
+                            self.swap_with_concurrent_ops(logs[i], logs[j])
+                            total_ops += 1
+                            
+                        logs[i].add_node(logs[i].my_uuid * 1000)
+
+                        total_ops += 1
+                next_step()
+            
+            
+            total = range(50000)
+            print(list(map(lambda x : x.total_compacted, logs)))
+            print(total_ops)
+            nodes_in_log = (np.array(average_nodes_in_log))
+            plt.plot(total,nodes_in_log[0])
+            plt.plot(total,nodes_in_log[1])
+            plt.plot(total,nodes_in_log[2])
+
+            plt.show()
+            
+            
+            # print(np.array(average_nodes_compacted) / 5000)
+        
+            
+            
+               
+
+               
+           
+           
 if __name__ == '__main__':
     unittest.main()

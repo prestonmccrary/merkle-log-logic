@@ -44,6 +44,8 @@ class MerkleLog:
         self.compacted = set([h(genesis_node)])
         self.auto_compaction = enable_compaction
         
+        self.total_compacted = 0
+        
     def _exists(self, hash):
         return hash in self.compacted or hash in self.nodes
                 
@@ -108,9 +110,9 @@ class MerkleLog:
     
     def prepare_swap(self, other_uuid):
         other_roots = self.other_replica_roots[other_uuid]
-        filter_fn = lambda x : x not in other_roots
+        filter_fn = lambda x : x not in other_roots and not self.check_stable(x)
         hashes_to_send = self._bfs_from_roots_until(filter_fn)
-        return  { h:self.nodes[h] for h in hashes_to_send}, set(self.roots)
+        return  { h:self.nodes[h] for h in hashes_to_send if h in self.nodes}, set(self.roots)
     
     def is_root(self, hash):
         return hash not in self.dependents
@@ -131,7 +133,7 @@ class MerkleLog:
         
         new_roots = self._determine_new_roots(received_nodes, received_roots)
     
-        filter_fn = lambda x : x not in self.other_replica_roots[other_uuid] and x not in received_roots
+        filter_fn = lambda x :  not self.check_stable(x) and x not in self.other_replica_roots[other_uuid] and x not in received_roots
         hashes_to_send = self._bfs_from_roots_until(filter_fn)
 
         self.roots = tuple(new_roots)
@@ -140,7 +142,7 @@ class MerkleLog:
             self.other_replica_roots[other_uuid] = new_roots
             self.update_stability()
     
-        return { h:self.nodes[h] for h in hashes_to_send}, new_roots, on_deliver 
+        return { h:self.nodes[h] for h in hashes_to_send if h in self.nodes}, new_roots, on_deliver 
         
     def swap_final(self, other_uuid, received_nodes, received_roots):
         if not self._verify_delta(received_nodes):
@@ -162,13 +164,15 @@ class MerkleLog:
             unstable_seen_everywhere = unstable_seen_everywhere.intersection(seen_non_stable)
 
         for hash in unstable_seen_everywhere:
-            self.nodes[hash].mark_stable()
+            if hash in self.nodes:
+                self.nodes[hash].mark_stable()
         
         
         if self.auto_compaction:
             cog = self.next_cog()
             if cog:
                 self.compact_log(cog)
+                
         
     def check_stable(self, hash):
         return hash in self.compacted or ( hash in self.nodes and self.nodes[hash].is_stable() )
@@ -185,9 +189,10 @@ class MerkleLog:
     def get_compact_frontier(self):
         compacted_frontier = set()
         for hash in self.compacted:
-            for dependent in self.dependents[hash]:
-                if self.solely_dependent_on_compact(dependent):
-                    compacted_frontier.add(dependent)
+            if hash in self.dependents:
+                for dependent in self.dependents[hash]:
+                    if self.solely_dependent_on_compact(dependent):
+                        compacted_frontier.add(dependent)
         return compacted_frontier
     
     def sole_dependents(self, node_hash):
@@ -209,7 +214,8 @@ class MerkleLog:
         return next_cog
         
     def compact_log(self, next_cog):
-        print("To compact", [ self.nodes[hash].value for hash in next_cog])
+        
+        self.total_compacted += 1
         
         for n in next_cog:
             
@@ -218,14 +224,15 @@ class MerkleLog:
                 
                 if d in self.dependents and not self.dependents[d]:
                     if d in self.compacted:
-                        self.compacted.remove(d)
+                        # self.compacted.remove(d)
                         del self.dependents[d]
             
-            del self.nodes[n]
+            self.nodes.pop(n)
             
-            if n in self.dependents and self.dependents[n]:
-                self.compacted.add(n)
-                
+            # if n in self.dependents and self.dependents[n]:
+            self.compacted.add(n)
+        
+
         
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, MerkleLog):

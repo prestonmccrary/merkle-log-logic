@@ -18,7 +18,7 @@ def visualize_dag(nodes_in_graph, edges, labels, genesis_node, replica_num, ax):
         nx.draw_networkx_edges(DG, pos, width=0.3, alpha=0.5, ax=ax, connectionstyle="arc3,rad=0.2")
 
     def get_ith_replica_nodes(i):
-        return [node for node in nodes_in_graph if labels[node] - (labels[node]%10) == i*10]
+        return [node for node in nodes_in_graph if  str(labels[node])[0] == str(i)]
         
 
     nx.draw_networkx_nodes(DG, pos, nodelist=[genesis_node], node_color="tab:gray", **options)
@@ -54,10 +54,10 @@ def visualize_merkel(log, ax):
     visualize_dag(nodes, edges, labels, genesis_node, log.my_uuid, ax)
 
 def visualize_multiple(logs):
-    fig, axs = plt.subplots(len(logs))
+    # fig, axs = plt.subplots(len(logs))
     
-    for i, log in enumerate(logs):
-        visualize_merkel(log, axs[i])
+    # for i, log in enumerate(logs):
+    #     visualize_merkel(log, axs[i])
         
-    plt.show()
-        
+    # plt.show()
+    pass
