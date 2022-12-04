@@ -27,7 +27,7 @@ class MerkleLog:
             
         def __repr__(self) -> str:
             return str(self.value)
-    def __init__(self, my_uuid, other_replicas): 
+    def __init__(self, my_uuid, other_replicas, enable_compaction = False): 
         self.other_replicas = [r for r in other_replicas if r!=my_uuid]
         self.my_uuid = my_uuid
         
@@ -40,9 +40,13 @@ class MerkleLog:
         self.dependencies = {h(genesis_node): []}
         self.dependents = {}
         self.roots = [h(genesis_node)]
-        self.stable_roots = set([h(genesis_node)])
         
+        self.compacted = set([h(genesis_node)])
+        self.auto_compaction = enable_compaction
         
+    def _exists(self, hash):
+        return hash in self.compacted or hash in self.nodes
+                
     def _construct_genesis_node(self):
         return self._MerkleLogNode([], 0)
     
@@ -83,7 +87,7 @@ class MerkleLog:
     
     def _add_verified_nodes(self, nodes):
         for hash, node in nodes.items():
-            if hash not in self.nodes:
+            if not self._exists(hash):
                 copy_node = self._MerkleLogNode(node.dependencies, node.value)
                 self.nodes[hash] = copy_node 
                 self._add_node_graph(copy_node)
@@ -114,7 +118,7 @@ class MerkleLog:
     def _determine_new_roots(self, received_nodes, received_roots):
         root_same = received_roots.intersection(set(self.roots))
         ## new roots that haven't been seen before MUST be new roots of common subgraph
-        new_remote_roots = set(filter(lambda root: root not in self.nodes, received_roots))
+        new_remote_roots = set(filter(lambda root: not self._exists(root), received_roots))
         if new_remote_roots:        
             self._add_verified_nodes(received_nodes)
         ## old roots that don't have dependents in new subgraph will stay as roots
@@ -160,8 +164,68 @@ class MerkleLog:
         for hash in unstable_seen_everywhere:
             self.nodes[hash].mark_stable()
         
+        
+        if self.auto_compaction:
+            cog = self.next_cog()
+            if cog:
+                self.compact_log(cog)
+        
     def check_stable(self, hash):
-        return hash in self.nodes and self.nodes[hash].is_stable()
+        return hash in self.compacted or ( hash in self.nodes and self.nodes[hash].is_stable() )
+
+    def is_compacted(self, hash):
+        return hash in self.compacted
+    
+    def solely_dependent(self, node, hashes):
+        return all([ (d in hashes) for d in self.dependencies[node] ])
+    
+    def solely_dependent_on_compact(self, node):
+        return self.solely_dependent(node, self.compacted)
+    
+    def get_compact_frontier(self):
+        compacted_frontier = set()
+        for hash in self.compacted:
+            for dependent in self.dependents[hash]:
+                if self.solely_dependent_on_compact(dependent):
+                    compacted_frontier.add(dependent)
+        return compacted_frontier
+    
+    def sole_dependents(self, node_hash):
+        return [] if node_hash not in self.dependents else [d for d in self.dependents[node_hash] if self.solely_dependent(d, [node_hash])]
+    
+    def next_cog(self):
+        
+        queue = deque(self.get_compact_frontier()) 
+        next_cog = set()
+        
+        while queue:
+            n = queue.pop()
+            if not self.check_stable(n):
+                return set()
+            next_cog.add(n)
+            for sole_dependent in self.sole_dependents(n):
+                queue.append(sole_dependent)
+            
+        return next_cog
+        
+    def compact_log(self, next_cog):
+        print("To compact", [ self.nodes[hash].value for hash in next_cog])
+        
+        for n in next_cog:
+            
+            for d in self.dependencies[n]:
+                self.dependents[d].remove(n)
+                
+                if d in self.dependents and not self.dependents[d]:
+                    if d in self.compacted:
+                        self.compacted.remove(d)
+                        del self.dependents[d]
+            
+            del self.nodes[n]
+            
+            if n in self.dependents and self.dependents[n]:
+                self.compacted.add(n)
+                
         
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, MerkleLog):
