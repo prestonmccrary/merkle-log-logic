@@ -8,8 +8,7 @@ def h(x):
 
 class MerkleLog:
     
-    class _MerkleLogNode:
-        
+    class _MerkleLogNode: 
         def __init__(self, dependencies, value):
             self.dependencies = tuple(dependencies)
             self.value = value
@@ -26,7 +25,8 @@ class MerkleLog:
         def get_copy(self):
             return self.__init__(self.dependencies, self.value)
             
-    
+        def __repr__(self) -> str:
+            return str(self.value)
     def __init__(self, my_uuid, other_replicas): 
         self.other_replicas = [r for r in other_replicas if r!=my_uuid]
         self.my_uuid = my_uuid

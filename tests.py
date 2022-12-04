@@ -381,6 +381,358 @@ class MerkleLogTests(unittest.TestCase):
         self.assertEquals(set(log2.roots), set([log1_node2]))
         self.assertFalse(log2.check_stable(log1_node2))
         
-             
+        self.swap(log2, log3)
+
+        self.assertEquals(set(log1.roots), set([log1_node2]))
+        self.assertFalse(log1.check_stable(log1_node2))
+        self.assertEquals(set(log2.roots), set([log1_node2]))
+        #log 2 should now mark it as stable
+        self.assertTrue(log2.check_stable(log1_node2))
+        self.assertEquals(set(log3.roots), set([log1_node2]))
+        self.assertFalse(log3.check_stable(log1_node2))  
+        
+        self.swap(log3, log1)
+        
+        #all should have it stable
+
+        self.assertEquals(set(log1.roots), set([log1_node2]))
+        self.assertTrue(log1.check_stable(log1_node2))
+        self.assertEquals(set(log2.roots), set([log1_node2]))
+        self.assertTrue(log2.check_stable(log1_node2))
+        self.assertEquals(set(log3.roots), set([log1_node2]))
+        self.assertTrue(log3.check_stable(log1_node2))  
+    
+    def test_stability_three_concurrent(self):
+
+        uuids = [1, 2, 3]
+        id1, id2, id3 = uuids  
+        
+        log1 = MerkleLog(id1, uuids)
+        log2 = MerkleLog(id2, uuids)
+        log3 = MerkleLog(id3, uuids)
+        
+        node10 = log1.add_node(10)
+        node20 = log2.add_node(20)
+        node30 = log3.add_node(30)
+        
+        nodes_to_send, roots_to_send = log1.prepare_swap(log2.my_uuid)
+        
+        #(11) shouln't be in subgraph
+        node11 = log1.add_node(11)
+        #(21) should be in subgraph
+        node21 = log2.add_node(21)
+        
+        nodes_to_send2, roots_to_send2, on_deliver = log2.respond_to_swap(log1.my_uuid, nodes_to_send, roots_to_send)
+        
+        #(22) shouldn't be in subgraph
+        node22 = log2.add_node(22)
+        
+        log1.swap_final(log2.my_uuid, nodes_to_send2, roots_to_send2)
+        #(12) shouldn't be in subgraph
+        node12 = log1.add_node(12)
+        on_deliver()
+        
+        #log1 and 2 share (10, 20, 21)
+        
+        
+        #log2 should be
+        #   (10) (11) 
+        # G           (22)
+        #   (20) (21) 
+        
+        #log1 should be
+        #   (10) (11) 
+        # G           (12)
+        #   (20) (21) 
+        
+        self.assertEqual(set(log1.roots), set([node12]))
+        self.assertEqual(set(log2.roots), set([node22]))
+        self.assertEqual( log1.other_replica_roots[log2.my_uuid], log2.other_replica_roots[log1.my_uuid] )
+        
+        
+        nodes_to_send, roots_to_send = log3.prepare_swap(log1.my_uuid)
+        
+        #(31) shouln't be in subgraph
+        node31 = log3.add_node(31)
+        #(13) should be in subgraph
+        node13 = log1.add_node(13)
+        
+        nodes_to_send2, roots_to_send2, on_deliver = log1.respond_to_swap(log3.my_uuid, nodes_to_send, roots_to_send)
+        
+        #(14) shouldn't be in subgraph
+        node14 = log1.add_node(14)
+        
+        log3.swap_final(log1.my_uuid, nodes_to_send2, roots_to_send2)
+        #(32) shouldn't be in subgraph
+        node32= log3.add_node(32)
+        #(15) shouldn't be in subgraph
+        node15 = log1.add_node(15)
+        on_deliver()
+        
+        #log1 and 3 share (10,11, 12, 13, 20, 21, 30)
+        
+        
+        #log1 should be
+        #   (10) (11) 
+        # G           (12) (13)
+        #   (20) (21)            V   
+        #                         (14) -> (15)
+        #   (30)                ^
+        
+        #log3 should be
+        #   (10) (11) 
+        # G           (12) (13)
+        #   (20) (21)            V   
+        #                          (32)
+        #   (30) -> (31)          ^     
+        
+        self.assertEqual(set(log1.roots), set([node15]) )
+        self.assertEqual(set(log3.roots), set([node32]) )
+        self.assertEqual( log1.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log1.my_uuid] )
+
+        
+        #Stable should be 
+        
+        #Log 1 has the following subgraphs defined
+        # Replica 2 : {10, 21} roots
+        # Replica 3: {30, 21, 13}roots
+        self.assertTrue(log1.check_stable(node10))
+        self.assertFalse(log1.check_stable(node11))
+        self.assertTrue(log1.check_stable(node20))
+        self.assertTrue(log1.check_stable(node21))
+        self.assertFalse(log1.check_stable(node12))
+        self.assertFalse(log1.check_stable(node14))
+        self.assertFalse(log1.check_stable(node15))
+        self.assertFalse(log3.check_stable(node30))
+
+        # Log 2 should think everything is unstable
+        # Replica 1 : {10, 21} roots
+        # Replica 3 : {g} roots
+        self.assertFalse(log2.check_stable(node10))
+        self.assertFalse(log2.check_stable(node11))
+        self.assertFalse(log2.check_stable(node20))
+        self.assertFalse(log2.check_stable(node21))
+        self.assertFalse(log2.check_stable(node22))
+        
+        # Log 3 should think that everything is unstable as it hasn't talked to Log 2
+        # Replica 2 : {g} roots
+        # Replica 3: {30, 21, 13}roots
+        self.assertFalse(log3.check_stable(node10))
+        self.assertFalse(log3.check_stable(node11))
+        self.assertFalse(log3.check_stable(node12))
+        self.assertFalse(log3.check_stable(node13))
+        self.assertFalse(log3.check_stable(node20))
+        self.assertFalse(log3.check_stable(node21))
+        self.assertFalse(log3.check_stable(node30))
+        self.assertFalse(log3.check_stable(node31))
+
+
+        
+        
+        self.swap(log2, log3)
+        self.assertEqual( log2.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log2.my_uuid] )
+
+        #Stable should be 
+        
+        #Log 1 has the following subgraphs defined (NOTHING CHANGED)
+        # Replica 2 : {10, 21} roots
+        # Replica 3: {30, 21, 13}roots
+        self.assertTrue(log1.check_stable(node10))
+        self.assertFalse(log1.check_stable(node11))
+        self.assertFalse(log1.check_stable(node12))
+        self.assertFalse(log1.check_stable(node13))
+        self.assertFalse(log1.check_stable(node14))
+        self.assertFalse(log1.check_stable(node15))
+        self.assertTrue(log1.check_stable(node20))
+        self.assertTrue(log1.check_stable(node21))
+        self.assertFalse(log1.check_stable(node30))
+        self.assertFalse(log2.check_stable(node31))
+        self.assertFalse(log2.check_stable(node32))
+
+        # Log 2
+        # Replica 1 : {10, 21} roots
+        # Replica 3 : {32, 22} roots
+        self.assertTrue(log2.check_stable(node10))
+        self.assertFalse(log2.check_stable(node11))
+        self.assertFalse(log2.check_stable(node12))
+        self.assertFalse(log2.check_stable(node13))
+        self.assertTrue(log2.check_stable(node20))
+        self.assertTrue(log2.check_stable(node21))
+        self.assertFalse(log2.check_stable(node22))
+        self.assertFalse(log2.check_stable(node30))
+        self.assertFalse(log2.check_stable(node31))
+        self.assertFalse(log2.check_stable(node32))
+
+        # Log 3 should think that everything is unstable as it hasn't talked to Log 2
+        # Replica 2 : {32, 22} roots
+        # Replica 1: {30, 21, 13}roots
+        self.assertTrue(log3.check_stable(node10))
+        self.assertTrue(log3.check_stable(node11))
+        self.assertTrue(log3.check_stable(node12))
+        self.assertTrue(log3.check_stable(node13))
+        self.assertTrue(log3.check_stable(node20))
+        self.assertTrue(log3.check_stable(node21))
+        self.assertFalse(log3.check_stable(node22))
+        self.assertTrue(log3.check_stable(node30))
+        self.assertFalse(log3.check_stable(node31))
+        self.assertFalse(log3.check_stable(node32))
+
+
+        self.swap(log3, log1)
+        self.assertEqual( log1.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log1.my_uuid] )
+
+        # #Stable should be 
+        
+        #Log 1 has the following subgraphs defined (NOTHING CHANGED)
+        # Replica 2 : {10, 21} roots
+        # Replica 3: {32, 22, 15} roots
+        self.assertTrue(log1.check_stable(node10))
+        self.assertFalse(log1.check_stable(node11))
+        self.assertFalse(log1.check_stable(node12))
+        self.assertFalse(log1.check_stable(node13))
+        self.assertFalse(log1.check_stable(node14))
+        self.assertFalse(log1.check_stable(node15))
+        self.assertTrue(log1.check_stable(node20))
+        self.assertTrue(log1.check_stable(node21))
+        self.assertFalse(log1.check_stable(node22))
+        self.assertFalse(log1.check_stable(node30))
+        self.assertFalse(log1.check_stable(node31))
+        self.assertFalse(log1.check_stable(node32))
+
+        # Log 2
+        # Replica 1 : {10, 21} roots
+        # Replica 3 : {32, 22} roots
+        self.assertTrue(log2.check_stable(node10))
+        self.assertFalse(log2.check_stable(node11))
+        self.assertFalse(log2.check_stable(node12))
+        self.assertFalse(log2.check_stable(node13))
+        self.assertTrue(log2.check_stable(node20))
+        self.assertTrue(log2.check_stable(node21))
+        self.assertFalse(log2.check_stable(node22))
+        self.assertFalse(log2.check_stable(node30))
+        self.assertFalse(log2.check_stable(node31))
+        self.assertFalse(log2.check_stable(node32))
+
+        # Log 3 should think that everything is unstable as it hasn't talked to Log 2
+        # Replica 2 : {32, 22} roots
+        # Replica 1: {32, 22, 15} roots
+        self.assertTrue(log3.check_stable(node10))
+        self.assertTrue(log3.check_stable(node11))
+        self.assertTrue(log3.check_stable(node12))
+        self.assertTrue(log3.check_stable(node13))
+        self.assertFalse(log3.check_stable(node14))
+        self.assertFalse(log3.check_stable(node15))
+        self.assertTrue(log3.check_stable(node20))
+        self.assertTrue(log3.check_stable(node21))
+        self.assertTrue(log3.check_stable(node22))
+        self.assertTrue(log3.check_stable(node30))
+        self.assertTrue(log3.check_stable(node31))
+        self.assertTrue(log3.check_stable(node32))
+        
+        
+        self.swap(log1, log2)
+
+        #Log 1 has the following subgraphs defined (NOTHING CHANGED)
+        # Replica 2 : {32, 22, 15} roots
+        # Replica 3: {32, 22, 15} roots
+        self.assertTrue(log1.check_stable(node10))
+        self.assertTrue(log1.check_stable(node11))
+        self.assertTrue(log1.check_stable(node12))
+        self.assertTrue(log1.check_stable(node13))
+        self.assertTrue(log1.check_stable(node14))
+        self.assertTrue(log1.check_stable(node15))
+        self.assertTrue(log1.check_stable(node20))
+        self.assertTrue(log1.check_stable(node21))
+        self.assertTrue(log1.check_stable(node22))
+        self.assertTrue(log1.check_stable(node30))
+        self.assertTrue(log1.check_stable(node31))
+        self.assertTrue(log1.check_stable(node32))
+        
+        # Log 2
+        # Replica 1 : {32, 22, 15} roots
+        # Replica 3 : {32, 22} roots
+        self.assertTrue(log2.check_stable(node10))
+        self.assertTrue(log2.check_stable(node11))
+        self.assertTrue(log2.check_stable(node12))
+        self.assertTrue(log2.check_stable(node13))
+        self.assertFalse(log2.check_stable(node14))
+        self.assertFalse(log2.check_stable(node15))
+        self.assertTrue(log2.check_stable(node20))
+        self.assertTrue(log2.check_stable(node21))
+        self.assertTrue(log2.check_stable(node22))
+        self.assertTrue(log2.check_stable(node30))
+        self.assertTrue(log2.check_stable(node31))
+        self.assertTrue(log2.check_stable(node32))
+        
+        # Log 3 should think that everything is unstable as it hasn't talked to Log 2
+        # Replica 2 : {32, 22} roots
+        # Replica 1: {32, 22, 15} roots
+        self.assertTrue(log3.check_stable(node10))
+        self.assertTrue(log3.check_stable(node11))
+        self.assertTrue(log3.check_stable(node12))
+        self.assertTrue(log3.check_stable(node13))
+        self.assertFalse(log3.check_stable(node14))
+        self.assertFalse(log3.check_stable(node15))
+        self.assertTrue(log3.check_stable(node20))
+        self.assertTrue(log3.check_stable(node21))
+        self.assertTrue(log3.check_stable(node22))
+        self.assertTrue(log3.check_stable(node30))
+        self.assertTrue(log3.check_stable(node31))
+        self.assertTrue(log3.check_stable(node32))
+        
+        
+        self.swap(log2, log3)
+        self.assertEqual( log2.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log2.my_uuid] )
+
+    
+        #Log 1 has the following subgraphs defined (NOTHING CHANGED)
+        # Replica 2 : {32, 22, 15} roots
+        # Replica 3: {32, 22, 15} roots
+        self.assertTrue(log1.check_stable(node10))
+        self.assertTrue(log1.check_stable(node11))
+        self.assertTrue(log1.check_stable(node12))
+        self.assertTrue(log1.check_stable(node13))
+        self.assertTrue(log1.check_stable(node14))
+        self.assertTrue(log1.check_stable(node15))
+        self.assertTrue(log1.check_stable(node20))
+        self.assertTrue(log1.check_stable(node21))
+        self.assertTrue(log1.check_stable(node22))
+        self.assertTrue(log1.check_stable(node30))
+        self.assertTrue(log1.check_stable(node31))
+        self.assertTrue(log1.check_stable(node32))
+        
+        # Log 2
+        # Replica 1 : {32, 22, 15} roots
+        # Replica 3 : {32, 22, 15} roots
+        self.assertTrue(log2.check_stable(node10))
+        self.assertTrue(log2.check_stable(node11))
+        self.assertTrue(log2.check_stable(node12))
+        self.assertTrue(log2.check_stable(node13))
+        self.assertTrue(log2.check_stable(node14))
+        self.assertTrue(log2.check_stable(node15))
+        self.assertTrue(log2.check_stable(node20))
+        self.assertTrue(log2.check_stable(node21))
+        self.assertTrue(log2.check_stable(node22))
+        self.assertTrue(log2.check_stable(node30))
+        self.assertTrue(log2.check_stable(node31))
+        self.assertTrue(log2.check_stable(node32))
+        
+        # Log 3 should think that everything is unstable as it hasn't talked to Log 2
+        # Replica 2 : {32, 22, 15} roots
+        # Replica 1: {32, 22, 15} roots
+        self.assertTrue(log3.check_stable(node10))
+        self.assertTrue(log3.check_stable(node11))
+        self.assertTrue(log3.check_stable(node12))
+        self.assertTrue(log3.check_stable(node13))
+        self.assertTrue(log3.check_stable(node14))
+        self.assertTrue(log3.check_stable(node15))
+        self.assertTrue(log3.check_stable(node20))
+        self.assertTrue(log3.check_stable(node21))
+        self.assertTrue(log3.check_stable(node22))
+        self.assertTrue(log3.check_stable(node30))
+        self.assertTrue(log3.check_stable(node31))
+        self.assertTrue(log3.check_stable(node32))
+            
+
 if __name__ == '__main__':
     unittest.main()
