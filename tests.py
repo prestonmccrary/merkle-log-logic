@@ -1,5 +1,8 @@
 import unittest
 from merkle import MerkleLog
+from visualize import visualize_merkel, visualize_multiple
+
+    
 
 class MerkleLogTests(unittest.TestCase):
     def test_identical_startup(self):
@@ -99,32 +102,46 @@ class MerkleLogTests(unittest.TestCase):
             log2 = MerkleLog(id2, uuids)
             
             logs = [log1, log2]
-            
+            # visualize_multiple([log1, log2])
+
             genesis_node = log1._get_genesis_node_hash()
             ## Replica 1: G <- (10) <- (20)
             log1_first_node = log1.add_node(10)
-            log1_second_node = log1.add_node(20)
-            ## Replica 2: G <- (11)
-            log2_first_node = log2.add_node(11)
+            # visualize_multiple([log1, log2])
+
             
+            log1_second_node = log1.add_node(11)
+            # visualize_multiple([log1, log2])
+            # visualize_multiple([log1, log2])
+
+
+            ## Replica 2: G <- (11)
+            log2_first_node = log2.add_node(20)
+            # visualize_multiple([log1, log2])
+
             ## Replica 1 initiates swap, and prepares payload
             nodes_to_send, roots =  log1.prepare_swap(2)
             expected_node_delta = [log1_first_node, log1_second_node]
             ## Payloud should inclue (10) and (20)
             self.assertEquals(set(nodes_to_send.keys()), set(expected_node_delta))
             
-            
+
             ## Replica 1 adds a log node after initiating swap, SHOULD NOT be reflected in common subgraph
             ## Replica 1 :  G <- (10) <- (20) <- (30)
-            log1_third_node = log1.add_node(30)
-            
+            log1_third_node = log1.add_node(12)
+            # visualize_multiple([log1, log2])
+
             ## Replica 2 adds a log node after Replica 1 initiates a swap while it is in network, SHOULD be reflected in common subgraph
             ## Replica 2 :  G <- (11) <- (12)
-            log2_second_node = log2.add_node(12)
-                        
+            log2_second_node = log2.add_node(21)
+            # visualize_multiple([log1, log2])
+
                         
             ## Replica 2 responds to swap, and prepares payload        
             nodes_to_send2, roots2, on_deliver = log2.respond_to_swap(1, nodes_to_send, roots)
+            # visualize_multiple([log1, log2])
+
+
             ## Payload should include (11) and (12)
             expected_node_delta = [log2_first_node, log2_second_node]
             self.assertEquals(set(nodes_to_send2.keys()), set(expected_node_delta))
@@ -135,8 +152,11 @@ class MerkleLogTests(unittest.TestCase):
             self.assertEqual(log2.other_replica_roots[1], set([genesis_node]))
             
             log1.swap_final(2, nodes_to_send2, roots2)
+            # visualize_multiple([log1, log2])
+
             on_deliver()
-        
+            # visualize_multiple([log1, log2])
+
             self.assertEqual(log1.other_replica_roots[2], set([log1_second_node, log2_second_node]))
             self.assertEqual(log1.other_replica_roots[2], log2.other_replica_roots[1])
             
@@ -144,15 +164,22 @@ class MerkleLogTests(unittest.TestCase):
             self.assertEqual(set(log1.roots), set([log1_third_node, log2_second_node]) )
             self.assertEqual(set(log2.roots), set([log1_second_node, log2_second_node]) )
             
-            log1_fourth_node = log1.add_node(40)
+            log1_fourth_node = log1.add_node(13)
+            # visualize_multiple([log1, log2])
+
             self.assertEqual(set(log1.roots), set([log1_fourth_node]))
         
-            log1_fifth_node = log1.add_node(50)
+            log1_fifth_node = log1.add_node(14)
+            # visualize_multiple([log1, log2])
+
             self.assertEqual(set(log1.roots), set([log1_fifth_node]))
             
             
-            log2_third_node = log2.add_node(13)
+            log2_third_node = log2.add_node(22)
+            # visualize_multiple([log1, log2])
+
             self.assertEqual(set(log2.roots), set([log2_third_node]))
+            
             
             ## Checking replica 1
             self.assertEqual(log1.dependencies,{
@@ -183,7 +210,7 @@ class MerkleLogTests(unittest.TestCase):
                 log1_second_node: (log1_first_node,),
                 log2_first_node: (genesis_node,),
                 log2_second_node: (log2_first_node,),
-                log2_third_node: (log1_second_node, log2_second_node ),
+                log2_third_node: (log2_second_node, log1_second_node),
             })
 
             self.assertEqual(log2.dependents, {
@@ -207,8 +234,8 @@ class MerkleLogTests(unittest.TestCase):
         
             genesis_node = log1._get_genesis_node_hash()
             node1_hash = log1.add_node(10)
-            node2_hash = log1.add_node(20)
-            node3_hash = log2.add_node(11)
+            node2_hash = log1.add_node(11)
+            node3_hash = log2.add_node(21)
         
             
             self.assertEqual(log1.check_stable(genesis_node), True)
@@ -305,13 +332,15 @@ class MerkleLogTests(unittest.TestCase):
         log3_node = log3.add_node(30)
         
         self.swap(log1, log2)
-        
+
         self.assertFalse(log1.check_stable(log1_node))
         self.assertFalse(log1.check_stable(log2_node))
         self.assertFalse(log2.check_stable(log1_node))
         self.assertFalse(log2.check_stable(log2_node))
 
         self.swap(log2, log3)
+
+        
         
         self.assertTrue(log2.check_stable(log1_node))
         self.assertTrue(log2.check_stable(log2_node))
@@ -404,6 +433,8 @@ class MerkleLogTests(unittest.TestCase):
     
     def test_stability_three_concurrent(self):
 
+
+
         uuids = [1, 2, 3]
         id1, id2, id3 = uuids  
         
@@ -411,25 +442,40 @@ class MerkleLogTests(unittest.TestCase):
         log2 = MerkleLog(id2, uuids)
         log3 = MerkleLog(id3, uuids)
         
+        logs = [log1, log2, log3]
+
         node10 = log1.add_node(10)
+        visualize_multiple(logs)
         node20 = log2.add_node(20)
+        visualize_multiple(logs)
+
         node30 = log3.add_node(30)
-        
+        visualize_multiple(logs)
+
         nodes_to_send, roots_to_send = log1.prepare_swap(log2.my_uuid)
         
         #(11) shouln't be in subgraph
         node11 = log1.add_node(11)
+        visualize_multiple(logs)
+
         #(21) should be in subgraph
         node21 = log2.add_node(21)
-        
+        visualize_multiple(logs)
+
         nodes_to_send2, roots_to_send2, on_deliver = log2.respond_to_swap(log1.my_uuid, nodes_to_send, roots_to_send)
-        
+        visualize_multiple(logs)
+
         #(22) shouldn't be in subgraph
         node22 = log2.add_node(22)
-        
+        visualize_multiple(logs)
+
         log1.swap_final(log2.my_uuid, nodes_to_send2, roots_to_send2)
+        visualize_multiple(logs)
+
         #(12) shouldn't be in subgraph
         node12 = log1.add_node(12)
+        visualize_multiple(logs)
+
         on_deliver()
         
         #log1 and 2 share (10, 20, 21)
@@ -454,21 +500,33 @@ class MerkleLogTests(unittest.TestCase):
         
         #(31) shouln't be in subgraph
         node31 = log3.add_node(31)
+        visualize_multiple(logs)
+
         #(13) should be in subgraph
         node13 = log1.add_node(13)
-        
+        visualize_multiple(logs)
+
         nodes_to_send2, roots_to_send2, on_deliver = log1.respond_to_swap(log3.my_uuid, nodes_to_send, roots_to_send)
-        
+        visualize_multiple(logs)
+
         #(14) shouldn't be in subgraph
         node14 = log1.add_node(14)
-        
+        visualize_multiple(logs)
+
         log3.swap_final(log1.my_uuid, nodes_to_send2, roots_to_send2)
+        visualize_multiple(logs)
+
         #(32) shouldn't be in subgraph
         node32= log3.add_node(32)
+        visualize_multiple(logs)
+
         #(15) shouldn't be in subgraph
         node15 = log1.add_node(15)
+        visualize_multiple(logs)
+
         on_deliver()
-        
+        visualize_multiple(logs)
+
         #log1 and 3 share (10,11, 12, 13, 20, 21, 30)
         
         
@@ -530,6 +588,8 @@ class MerkleLogTests(unittest.TestCase):
         
         
         self.swap(log2, log3)
+        visualize_multiple(logs)
+
         self.assertEqual( log2.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log2.my_uuid] )
 
         #Stable should be 
@@ -579,6 +639,8 @@ class MerkleLogTests(unittest.TestCase):
 
 
         self.swap(log3, log1)
+        visualize_multiple(logs)
+
         self.assertEqual( log1.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log1.my_uuid] )
 
         # #Stable should be 
@@ -631,6 +693,7 @@ class MerkleLogTests(unittest.TestCase):
         
         
         self.swap(log1, log2)
+        visualize_multiple(logs)
 
         #Log 1 has the following subgraphs defined (NOTHING CHANGED)
         # Replica 2 : {32, 22, 15} roots
@@ -682,6 +745,8 @@ class MerkleLogTests(unittest.TestCase):
         
         
         self.swap(log2, log3)
+        visualize_multiple(logs)
+
         self.assertEqual( log2.other_replica_roots[log3.my_uuid], log3.other_replica_roots[log2.my_uuid] )
 
     
@@ -732,6 +797,7 @@ class MerkleLogTests(unittest.TestCase):
         self.assertTrue(log3.check_stable(node30))
         self.assertTrue(log3.check_stable(node31))
         self.assertTrue(log3.check_stable(node32))
+            
             
 
 if __name__ == '__main__':
