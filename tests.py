@@ -846,9 +846,9 @@ class MerkleLogTests(unittest.TestCase):
     def swap_with_concurrent_ops(self, log1, log2):
 
             nodes_to_send, roots_to_send = log1.prepare_swap(log2.my_uuid)
-            print("nodes_to_send", len(nodes_to_send))
+            # print("nodes_to_send", len(nodes_to_send))
             nodes_to_send2, roots_to_send2, on_deliver = log2.respond_to_swap(log1.my_uuid, nodes_to_send, roots_to_send)
-            print("nodes_to_send2", len(nodes_to_send2))
+            # print("nodes_to_send2", len(nodes_to_send2))
             log2.add_node(log2.my_uuid * 1000)
             log1.swap_final(log2.my_uuid, nodes_to_send2, roots_to_send2)
             on_deliver()
@@ -859,67 +859,75 @@ class MerkleLogTests(unittest.TestCase):
 
     def test_benchmark(self):
         
-            uuids = [1, 2, 3, 4]
-            id1, id2, id3, id4 = uuids  
+            uuids = [1, 2, 3, 4, 5]
+            id1, id2, id3, id4, id5 = uuids  
             
             log1 = MerkleLog(id1, uuids, enable_compaction=True)
             log2 = MerkleLog(id2, uuids, enable_compaction=True)
             log3 = MerkleLog(id3, uuids, enable_compaction=True)
             log4 = MerkleLog(id4, uuids, enable_compaction=True)
+            log5 = MerkleLog(id5, uuids, enable_compaction=True)
 
             
-            wps = 2000
-            gossip_freq = 0.2
             ops_to_gossip = 300
             
-            logs = [log1, log2, log3, log4]
+            logs = [log1, log2, log3, log4, log5]
             
-            timesteps = [60,120,180,240]
-            average_nodes_in_log = [[], [], [], []]
-            average_nodes_compacted = [[], [], [], []]
+            timesteps = [59,119,179,239, 299]
+            average_nodes_in_log = [[], [], [], [], []]
+            average_nodes_compacted = [[], [], [], [], []]
             
             
             def next_step():
-                for i in range(4):
+                for i in range(5):
                     timesteps[i] += 1
                     average_nodes_in_log[i].append( len(logs[i].nodes.keys()) )
                     average_nodes_compacted[i].append( len(logs[i].compacted) )
             
             swaps = 0
             total_ops = 0
-            for _ in range(50000):
+            for t in range(25000):
          
-                
+                node_1_down = timesteps[0] < 6000 and timesteps[0] > 4000
+                 
                 num = np.random.random_integers(0, 3)
                 total_ops += num
                 for _ in range(num):
                     i = np.random.random_integers(0, 3) 
+                    # if not node_1_down or i not in [1,2,3]:
                     logs[i].add_node(logs[i].my_uuid * 1000)
-                # visualize_multiple(logs)
+                    # visualize_multiple(logs)
                 
                        
-                for i in range(4):
-
+                for i in range(5):
+                    
                     if timesteps[i] % ops_to_gossip == 0:
                         logs[i].add_node(logs[i].my_uuid * 1000)
 
-                        for j in list(filter(lambda x : x != i,[0,1,2,3])):
-                            self.swap_with_concurrent_ops(logs[i], logs[j])
-                            total_ops += 1
+                        for j in list(filter(lambda x : x != i,[0,1,2,3, 4])):
                             
+                            if not node_1_down or (1 not in [i,j] and 2 not in [i,j] and 3 not in [i,j]):
+                            
+
+                                self.swap_with_concurrent_ops(logs[i], logs[j])
+                                total_ops += 1
+                        
+                        timesteps[i] += np.random.random_integers(0, 2) 
                         logs[i].add_node(logs[i].my_uuid * 1000)
 
                         total_ops += 1
                 next_step()
             
             
-            total = range(50000)
+            total = range(25000)
             print(list(map(lambda x : x.total_compacted, logs)))
             print(total_ops)
             nodes_in_log = (np.array(average_nodes_in_log))
             plt.plot(total,nodes_in_log[0])
             plt.plot(total,nodes_in_log[1])
             plt.plot(total,nodes_in_log[2])
+            plt.plot(total,nodes_in_log[3])
+            plt.plot(total,nodes_in_log[4])
 
             plt.show()
             

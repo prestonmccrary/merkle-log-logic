@@ -172,19 +172,23 @@ class MerkleLog:
             cog = self.next_cog()
             if cog:
                 self.compact_log(cog)
-                
-        
+    
+    def is_deleted(self, hash):
+        return hash not in self.compacted and hash not in self.dependents and hash not in self.dependencies
+
     def check_stable(self, hash):
-        return hash in self.compacted or ( hash in self.nodes and self.nodes[hash].is_stable() )
+        return self.is_deleted(hash) or hash in self.compacted or ( hash in self.nodes and self.nodes[hash].is_stable() )
+
+
 
     def is_compacted(self, hash):
-        return hash in self.compacted
+        return hash in self.compacted or hash not in self.dependents
     
     def solely_dependent(self, node, hashes):
         return all([ (d in hashes) for d in self.dependencies[node] ])
     
     def solely_dependent_on_compact(self, node):
-        return self.solely_dependent(node, self.compacted)
+        return all([ self.is_compacted(d) for d in self.dependencies[node] ])
     
     def get_compact_frontier(self):
         compacted_frontier = set()
@@ -212,8 +216,25 @@ class MerkleLog:
                 queue.append(sole_dependent)
             
         return next_cog
-        
+    
+    def can_delete(self, hash):
+        for key, value in self.other_replica_roots.items():
+            if hash in value:
+                return False 
+        return hash in self.dependents and self.dependents[hash] == []
+    
     def compact_log(self, next_cog):
+        
+        for c in list(self.compacted):
+            if self.can_delete(c):
+                self.compacted.remove(c)
+                self.dependents.pop(c)
+                self.dependencies.pop(c)
+                
+
+                assert(self.is_deleted(c) == True)
+            else:
+                assert(self.is_deleted(c) == False)
         
         self.total_compacted += 1
         
@@ -223,17 +244,15 @@ class MerkleLog:
                 self.dependents[d].remove(n)
                 
                 if d in self.dependents and not self.dependents[d]:
-                    if d in self.compacted:
-                        # self.compacted.remove(d)
-                        del self.dependents[d]
+                    if self.can_delete(d):
+                        self.dependents.pop(d)
             
             self.nodes.pop(n)
-            
-            # if n in self.dependents and self.dependents[n]:
+
             self.compacted.add(n)
         
-
-        
+    
+                
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, MerkleLog):
             return False 
